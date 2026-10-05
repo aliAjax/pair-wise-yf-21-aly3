@@ -1,127 +1,107 @@
+import { useMemo, useState } from "react";
 import "./styles.css";
+import { StoreProvider, useStore } from "./store";
+import { ArchiveList } from "./components/ArchiveList";
+import { JobDetail } from "./components/JobDetail";
+import { TemplatesPanel } from "./components/TemplatesPanel";
+import { LedgerFeed } from "./components/LedgerFeed";
 
-const project = {
-  "sourceNo": 2,
-  "id": "hxyfront-62009",
-  "port": 62009,
-  "title": "地毯修复纹样档案",
-  "domain": "手工地毯修复",
-  "prompt": "做一个给手工地毯修复工作室使用的纹样与修复档案前端项目，可以记录地毯产地、年代、结密度、材质、染色类型、破损区域、补线颜色和修复工序。页面需要有纹样局部标记图、修复前后记录、材料色卡、工序进度和按产地筛选的档案列表。",
-  "palette": [
-    "#7c2d12",
-    "#b45309",
-    "#0f766e"
-  ],
-  "metrics": [
-    "待修复",
-    "纹样档案",
-    "色卡数量",
-    "完工率"
-  ],
-  "filters": [
-    "波斯",
-    "安纳托利亚",
-    "高加索",
-    "藏毯"
-  ],
-  "fields": [
-    "地毯产地",
-    "年代",
-    "结密度",
-    "材质",
-    "染色类型",
-    "破损区域"
-  ],
-  "records": [
-    [
-      "CAR-092",
-      "波斯",
-      "羊毛，约1960s",
-      "边缘磨损待补线"
-    ],
-    [
-      "CAR-117",
-      "安纳托利亚",
-      "植物染，结密度42",
-      "中心纹样缺口"
-    ],
-    [
-      "CAR-138",
-      "藏毯",
-      "局部褪色",
-      "需匹配靛蓝色卡"
-    ]
-  ]
-};
+const RULES = [
+  "开工即钉版：工单记下当时模板版本，之后模板升级不改钉版",
+  "普通升级只动未开始工序；进行中、已完工保留当时参数",
+  "色卡/结密度改动：未完成工序（含进行中）作废留痕并按新版重算",
+  "历史档案按入库时间回填最接近的一版，挂待确认",
+  "两人同开一块毯：先到锁定，后到看到锁在谁手里",
+];
 
-function App() {
+function Metrics() {
+  const { state } = useStore();
+  const metrics = useMemo(() => {
+    const activeJobs = state.jobs.filter((j) => !j.finishedAt).length;
+    const pendingBackfill = state.archives.filter(
+      (a) => a.historical && a.backfill?.status === "pending"
+    ).length;
+    const liveSteps = state.jobs.flatMap((j) => j.steps.filter((s) => s.status !== "voided"));
+    const done = liveSteps.filter((s) => s.status === "done").length;
+    const rate = liveSteps.length ? Math.round((done / liveSteps.length) * 100) : 0;
+    const versions = state.templates.reduce((n, t) => n + t.versions.length, 0);
+    return [
+      { label: "进行中工单", value: activeJobs },
+      { label: "模板版本总数", value: versions },
+      { label: "回填待确认", value: pendingBackfill },
+      { label: "工序完工率", value: `${rate}%` },
+    ];
+  }, [state]);
+
+  return (
+    <section className="metrics">
+      {metrics.map((m) => (
+        <article key={m.label}>
+          <small>{m.label}</small>
+          <strong>{m.value}</strong>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function Shell() {
+  const { state, currentArtisan, setCurrentArtisanId, reset } = useStore();
+  const [selectedId, setSelectedId] = useState(state.archives[0].id);
+
   return (
     <main className="app">
       <section className="hero">
-        <p>{project.id} · 源提示词{project.sourceNo} · Port {project.port}</p>
-        <h1>{project.title}</h1>
-        <span>{project.prompt}</span>
-      </section>
-
-      <section className="metrics">
-        {project.metrics.map((metric: string, index: number) => (
-          <article key={metric}>
-            <small>{metric}</small>
-            <strong>{[28, 6, 14, 91][index] ?? 10}</strong>
-          </article>
-        ))}
-      </section>
-
-      <section className="workspace">
-        <aside className="panel">
-          <h2>{project.domain}分类</h2>
-          <div className="chips">
-            {project.filters.map((item: string) => (
-              <button key={item}>{item}</button>
+        <div className="hero-top">
+          <p>hxyfront-62009 · 手工地毯修复 · 版本账工作台</p>
+          <div className="artisan-switch">
+            <span>当前身份</span>
+            {state.artisans.map((a) => (
+              <button
+                key={a.id}
+                className={a.id === currentArtisan.id ? "artisan-active" : ""}
+                onClick={() => setCurrentArtisanId(a.id)}
+              >
+                {a.name}（{a.badge}）
+              </button>
             ))}
+            <button className="ghost-btn" onClick={reset} title="清空本地账本并恢复演示数据">
+              重置演示
+            </button>
           </div>
-        </aside>
-
-        <section className="panel form-panel">
-          <div className="heading">
-            <div>
-              <p>专业字段</p>
-              <h2>新增记录</h2>
-            </div>
-            <button className="primary">保存记录</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
-        </section>
-      </section>
-
-      <section className="panel">
-        <div className="heading">
-          <div>
-            <p>近期记录</p>
-            <h2>工作台摘要</h2>
-          </div>
-          <button>导出CSV</button>
         </div>
-        <div className="records">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")}>
-              <b>{String(index + 1).padStart(2, "0")}</b>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
+        <h1>地毯档案 · 工艺模板 · 工序版本账</h1>
+        <div className="rules">
+          {RULES.map((r, i) => (
+            <span key={r}>
+              <b>{i + 1}</b>
+              {r}
+            </span>
           ))}
         </div>
       </section>
+
+      <Metrics />
+
+      <section className="workspace detail-layout">
+        <ArchiveList selectedId={selectedId} onSelect={setSelectedId} />
+        <JobDetail carpetId={selectedId} />
+      </section>
+
+      <div className="template-block">
+        <TemplatesPanel />
+      </div>
+
+      <LedgerFeed />
     </main>
+  );
+}
+
+function App() {
+  return (
+    <StoreProvider>
+      <Shell />
+    </StoreProvider>
   );
 }
 
